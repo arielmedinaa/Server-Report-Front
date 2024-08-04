@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, json } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
 import NavBarChat from "../components/NavBarChat";
 import { BiCode, BiData, BiSolidSend } from "react-icons/bi";
+import { CodeBlock, dracula } from "react-code-blocks"; // Importa el CodeBlock
 
 const ChatPage = () => {
   const navigate = useNavigate();
   const { ruc } = useParams();
   const [message, setMessage] = useState("");
-  const [prompts, setPrompts] = useState([]);
+  const [prompts, setPrompts] = useState(() => {
+    const savedPrompts = localStorage.getItem(`chatHistory-${ruc}`);
+    return savedPrompts ? JSON.parse(savedPrompts) : [];
+  });
   const textareaRef = useRef(null);
 
   const handleInputChange = (e) => {
@@ -25,23 +30,34 @@ const ChatPage = () => {
 
   const handleChat = async () => {
     if (message.trim() === "") return;
-
     const prompt = message.trim();
-    setMessage(""); //Limpia el contenido
-    setPrompts([...prompts, { prompt }]);
+
+    const newPrompt = { prompt, response: null };
+    setPrompts((prevPrompts) => {
+      const updatedPrompts = [...prevPrompts, newPrompt];
+      localStorage.setItem(`chatHistory-${ruc}`, JSON.stringify(updatedPrompts));
+      return updatedPrompts;
+    });
+    setMessage("");
 
     try {
-      /* const res = await fetch(`http://127.0.0.1:8000/chat/`, {
-        method: 'POST',
+      const res = await fetch(`http://127.0.0.1:8000/chat/${ruc}`, {
+        method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({prompt})
-      }); */
+        body: JSON.stringify({ prompt }),
+      });
       if (!res.ok) {
         throw new Error("Error al enviar el prompt");
       }
-      const data = await res.json();
+      const data = await res.text();
+      setPrompts(prevPrompts => {
+        const updatedPrompts = [...prevPrompts];
+        updatedPrompts[updatedPrompts.length - 1].response = data;
+        localStorage.setItem(`chatHistory-${ruc}`, JSON.stringify(updatedPrompts));
+        return updatedPrompts;
+      });
     } catch (e) {
       console.error("Error: ", e);
     }
@@ -50,6 +66,34 @@ const ChatPage = () => {
   useEffect(() => {
     resizeTextarea();
   }, [message]);
+
+  const renderResponse = (response) => {
+    // Buscar si el texto tiene bloques de código delimitados por ```
+    const codeBlockPattern = /```([\s\S]*?)```/g;
+    const parts = response.split(codeBlockPattern);
+
+    return parts.map((part, index) => {
+      // Si el índice es impar, significa que es un bloque de código
+      if (index % 2 === 1) {
+        return (
+          <div key={index} className="my-2">
+            <CodeBlock
+              text={part}
+              language="xml"
+              theme={dracula}
+            />
+          </div>
+        );
+      } else {
+        // Si no, es texto normal
+        return (
+          <ReactMarkdown key={index} className="break-words overflow-hidden">
+            {part}
+          </ReactMarkdown>
+        );
+      }
+    });
+  };
 
   return (
     <div className="min-h-full flex flex-col bg-gradient-to-b from-zinc-900 via-blue-700 to-blue-800 text-white">
@@ -75,9 +119,14 @@ const ChatPage = () => {
           <div className="px-72 my-4">
             <div className="flex-grow overflow-y-auto p-4 flex flex-col items-end max-h-screen">
               {prompts.map((item, index) => (
-                <div className="bg-zinc-800 backdrop-filter backdrop-blur-md bg-opacity-10 border-none rounded-3xl w-full max-w-md mb-6 p-4 break-words" key={index}>
-                  <p>{item.prompt}</p>
-                </div>
+                <React.Fragment key={index}>
+                  <div className="bg-zinc-800 backdrop-filter backdrop-blur-md bg-opacity-10 border-none rounded-3xl w-full max-w-md mb-6 p-4 break-words">
+                    <p>{item.prompt}</p>
+                  </div>
+                  <div className="bg-red-500 text-white border-none rounded-3xl w-full max-w-md mb-6 p-4 break-words">
+                    {renderResponse(item.response)}
+                  </div>
+                </React.Fragment>
               ))}
             </div>
             <div className="bg-zinc-800 bg-opacity-70 rounded-full w-full p-4 my-4 flex items-center justify-center">
